@@ -32,26 +32,28 @@ The message manager includes four methods:
 
 There are three different types of message manager: the global message manager, the window message manager, and the browser message manager.
 
+Note that in this context, "browser" refers to the [XUL `<browser>` object](https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/browser), which is a frame that hosts a single Web document. It does not refer to the more general sense of a Web browser.
+
 ### The global message manager ###
 
-The global message manager operates on every frame:
+The global message manager operates on every [`<browser>`](https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/browser):
 
-* `loadFrameScript` loads the given script into every frame in every chrome window
-* `sendAsyncMessage` API sends the message to every frame in every chrome window
+* `loadFrameScript` loads the given script into every `<browser>` in every chrome window
+* `sendAsyncMessage` API sends the message to every `<browser>` in every chrome window
 
 ### The window message manager ###
 
-The window message manager is associated with a specific chrome window, and operates on every frame loaded into the window:
+The window message manager is associated with a specific chrome window, and operates on every tab loaded into the window:
 
-* `loadFrameScript` loads the given script into every frame in the window
-* `sendAsyncMessage` API sends the message to every frame in the chrome window
+* `loadFrameScript` loads the given script into every `<browser>` in the window
+* `sendAsyncMessage` API sends the message to every `<browser>` in the chrome window
 
 ### The browser message manager ###
 
-The browser message manager is specific to a single XUL <browser> element (which essentially corresponds to a single tab):
+The `<browser>` message manager is specific to a single XUL `<browser>` element (which essentially corresponds to a single tab):
 
-* `loadFrameScript` loads the given script only into its frame
-* `sendAsyncMessage` API sends the message only its frame
+* `loadFrameScript` loads the given script only into its `<browser>`
+* `sendAsyncMessage` API sends the message only its `<browser>`
 
 ## Accessing a message manager ##
 
@@ -75,13 +77,39 @@ The browser message manager can be accessed as a property of the XUL `<browser>`
 
 To load a content script use the `loadFrameScript` function:
 
-    messageManager.loadFrameScript("chrome://my-extension/content/content.js");
+    // chrome script
+    messageManager.loadFrameScript("chrome://my-e10s-extension/content/content.js");
 
+This takes one mandatory parameter, which is a chrome:// URL pointing to the content script you want to load. 
 
+Extension developers can [register a chrome URL](https://developer.mozilla.org/en/docs/Chrome_Registration) to define the mapping between the URL and a content script packaged with the extension:
+
+    // chrome.manifest
+    content my-e10s-extension content.js
+
+By default, `loadFrameScript` will only load the specified script into frames that are already open at the time the call is made, not any frames opened afterwards. But `loadFrameScript` takes an additional parameter `allowDelayedLoad`, which, if present and set to `true`, means that the content script will be loaded into any new frames opened after the `loadFrameScript` call.
+
+    // chrome script
+    // load script into current and future frames
+    messageManager.loadFrameScript("chrome://my-e10s-extension/content/content.js", true);
 
 ## Content script environment ##
 
+Content scripts have the following global objects:
+
+* `content` - The DOM window of the content loaded in the browser.
+* `docShell` - The nsIDocShell associated with the browser.
+* `addMessageListener()` - listen to messages from chrome
+* `removeMessageListener()` - stop listening to messages from chrome
+* `sendAsyncMessage()` - send an asynchronous message to chrome
+* `sendSyncMessage()` - send a synchronous message to chrome
+* `dump()` - print a message to the console
+* `atob()` - base64 decode
+* `btoa()` - base64 encode
+
 ## Chome <-> content communication
+
+
 
 Chrome code and content scripts communicate back and forth using a messaging API:
 * you can pass JSON objects using this API, but not functions
