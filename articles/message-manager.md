@@ -25,7 +25,7 @@ The message manager includes four methods:
 
 * `messageManager.loadFrameScript(url[, allowDelayedLoad])`: load a content script
 * `messageManager.addMessageListener(messageName, listener)`: add a listener for messages from a content script
-* `messageManager.removeMessageListener(messageName, listener): stop listening for a message
+* `messageManager.removeMessageListener(messageName, listener)`: stop listening for a message
 * `messageManager.sendAsyncMessage(messageName[, json])`: send a message to content scripts
 
 ## Types of message manager ##
