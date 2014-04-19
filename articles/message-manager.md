@@ -109,148 +109,86 @@ Content scripts have the following global objects:
 
 ## Chome <-> content communication
 
+Chrome code and content scripts communicate back and forth using a messaging API which can include JSON arguments.
+Content scripts can send asynchronous or synchronous messages to chrome, but chrome can only send asynchronous messages to content. This is an intentional design decision made to prevent content code from making chrome code unresponsive.
 
-
-Chrome code and content scripts communicate back and forth using a messaging API:
-* you can pass JSON objects using this API, but not functions
-* content scripts can send asynchronous or synchronous messages to chrome
-* chrome can only send asynchronous messages to content: this is an intentional design decision made to prevent content code from making chrome code unresponsive
-* where absolutely necessary, content scripts can pass wrappers called Cross Process Object Wrappers to chrome, and chrome can use these wrappers to get synchronous access to content objects.
+Where absolutely necessary, content scripts can pass wrappers called Cross Process Object Wrappers to chrome, and chrome can use these wrappers to get synchronous access to content objects.
 
 ### Content to chrome
 
+The content script can make the message synchronous or asynchronous.
+
+To send an asychronous message the content script uses the global `sendAsyncMessage()` function. `sendAsyncMessage()` takes one mandatory parameter, which is the name of the message. After that it can pass detailed data as a JSONable object, and after that it can pass any objects it wants to pass to content as a CPOW. 
+
+The example below sends a message named "my-e10s-extension-message", with a `data` payload containing `details` and `tag` properties, and exposes the `event.target` object as a CPOW:
+
+   // content script
+   addEventListener("click", function (event) {
+     sendAsyncMessage("my-e10s-extension-message", {
+       details : "they clicked",
+       tag : event.target.tagName
+     }, 
+     {
+        target : event.target
+     });
+    }, false);
+
+To receive messages from content, a chrome script needs to add a message listener using the message manager's `addMessageListener()` API.
+
+The message passed to the listener is an object containing the following properties:
+
+* `name`: string containing the message name
+* `sync`: boolean value declaring whether the message was send synchronously or aynchronously
+* `data`: the JSON object passed as the second parameter
+* `target`: the XUL `<browser>` element from which this message was sent
+* `objects`: an object whose properties are any CPOWs exposed by the sender
+
+In the example below the listener just logs all the messages details:
+
+    // chrome script
+    messageManager.addMessageListener("my-e10s-extension-message", listener);
+
+    function listener(message) {
+      console.log(message.name);
+      console.log(message.sync);
+      console.log(message.data);
+      console.log(message.target);
+      console.log(message.objects);
+    }
+
+Combining this message listener with the message above will give console output somewhat like this, when the user clicks a `<div>`:
+
+    "my-e10s-extension-message"
+    false
+    Object { details: "they clicked", tag: "div" }
+    <xul:browser anonid="initialBrowser" ... >
+    { target: <div#searchContainer> }
+
+To send a synchronous message, the content script uses the global `sendSyncMessage()` function. This returns an array of all the values returned from each listener:
+
+    // content script
+    addEventListener("click", function (event) {
+      var results = sendSyncMessage("my-e10s-extension-message", {
+        details : "they clicked",
+        tag : event.target.tagName
+      });
+      content.console.log(results[0]);
+    }, false);
+
+To handle a synchronous message, the chrome script just returns the value from the message listener:
+
+    // chrome script
+    messageManager.addMessageListener("my-e10s-extension-message", listener);
+
+    function listener(message) {
+      return "this pleases chrome";
+    }
+
 ### Chrome to content
+
+## Cross Process Object Wrappers
+
+
 
 ************
 
-
-
-gBrowser.mCurrentBrowser.contentDocument.body.addEventListener("click", function() {window.alert("you clicked");},false)
-
--> Error: cannot ipc non-cpow object
-
-Message managers are separated into "parent side" and "child side". These don't always correspond to process boundaries, but can.  For each child-side message manager, there is always exactly one corresponding parent-side message manager that it sends messages to.  However, for each parent-side message manager, there may be more than one child-side managers it can message.
-
-Message managers that always have exactly one "other side" are of type nsIMessageSender.  Parent-side message managers that have many "other sides" are of type nsIMessageBroadcaster.
-
-Child-side message managers can send synchronous messages to their parent side, but not the other way around.
-
-There are two realms of message manager hierarchies.  One realm
-approximately corresponds to DOM elements, the other corresponds to
-process boundaries.
-
-Message managers corresponding to DOM elements
-==============================================
-
-In this realm of message managers, there are
- - "frame message managers" which correspond to frame elements
- - "window message managers" which correspond to top-level chrome
-   windows
- - the "global message manager", on the parent side.  See below.
-
-The DOM-realm message managers can communicate in the ways shown by
-the following diagram.  The parent side and child side can
-correspond to process boundaries, but don't always.
-
- Parent side                         Child side
--------------                       ------------
- global MMg
-  |
-  +-->window MMw1
-  |    |
-  |    +-->frame MMp1_1<------------>frame MMc1_1
-  |    |
-  |    +-->frame MMp1_2<------------>frame MMc1_2
-  |    ...
-  |
-  +-->window MMw2
-  ...
-
-For example: a message sent from MMc1_1, from the child side, is
-sent only to MMp1_1 on the parent side.  However, note that all
-message managers in the hierarchy above MMp1_1, in this diagram
-MMw1 and MMg, will also notify their message listeners when the
-message arrives.
-
-For example: a message broadcast through the global MMg on the
-parent side would be broadcast to MMw1, which would transitively
-broadcast it to MMp1_1, MM1p_2".  The message would next be
-broadcast to MMw2, and so on down the hierarchy.
-
- **** PERFORMANCE AND SECURITY WARNING****
-Messages broadcast through the global MM and window MMs can result
-in messages being dispatched across many OS processes, and to many
-processes with different permissions.  Great care should be taken
-when broadcasting.
-
-Interfaces
-----------
-
-The global MMg and window MMw's are message broadcasters implementing
-nsIMessageBroadcaster while the frame MMp's are simple message senders
-(nsIMessageSender). Their counterparts in the content processes are
-message senders implementing nsIContentFrameMessageManager.
-
-                   nsIMessageListenerManager
-                 /                           \
-nsIMessageSender                               nsIMessageBroadcaster
-      |
-nsISyncMessageSender (content process/in-process only)
-      |
-nsIContentFrameMessageManager (content process/in-process only)
-      |
-nsIInProcessContentFrameMessageManager (in-process only)
-
-
-Message managers in the chrome process can also be QI'ed to nsIFrameScriptLoader.
-
-
-Message managers corresponding to process boundaries
-====================================================
-
-The second realm of message managers is the "process message
-managers".  With one exception, these always correspond to process
-boundaries.  The picture looks like
-
- Parent process                      Child processes
-----------------                    -----------------
- global PPMM
-  |
-  +<----> child PPMM
-  |
-  +-->parent PMM1<------------------>child process CMM1
-  |
-  +-->parent PMM2<------------------>child process PMM2
-  ...
-
-For example: the parent-process PMM1 sends messages directly to
-only the child-process CMM1.
-
-For example: CMM1 sends messages directly to PMM1.  The global PPMM
-will also notify their message listeners when the message arrives.
-
-For example: messages sent through the global PPMM will be
-dispatched to the listeners of the same-process, "child PPMM".
-They will also be broadcast to PPM1, PPM2, etc.
-
- **** PERFORMANCE AND SECURITY WARNING****
-Messages broadcast through the global PPMM can result in messages
-being dispatched across many OS processes, and to many processes
-with different permissions.  Great care should be taken when
-broadcasting.
-
-Requests sent to parent-process message listeners should usually
-have replies scoped to the requesting CPMM.  The following pattern
-is common
-
- const ParentProcessListener = {
-   receiveMessage: function(aMessage) {
-     let childMM = aMessage.target.QueryInterface(Ci.nsIMessageSender);
-     switch (aMessage.name) {
-     case "Foo:Request":
-       // service request
-       childMM.sendAsyncMessage("Foo:Response", { data });
-     }
-   }
- };
-/
