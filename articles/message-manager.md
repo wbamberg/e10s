@@ -1,8 +1,6 @@
 **
 
-Message managers provide a way for chrome-privileged JavaScript code to communicate across process boundaries. They are particularly useful for allowing chrome code, including the browser's own code and extension code, to access web content when the browser is running web content in a separate process.
-
-**
+**Message managers provide a way for chrome-privileged JavaScript code to communicate across process boundaries. They are particularly useful for allowing chrome code, including the browser's own code and extension code, to access web content when the browser is running web content in a separate process.**
 
 Firefox is written partly in C++ and partly in JavaScript. The JavaScript code, which includes the code to implement the Firefox user interface and code inserted by Firefox extensions, is commonly referred to as "chrome" code to distinguish it from the JavaScript code running in normal web pages, which is referred to as "content".
 
@@ -12,27 +10,25 @@ In current versions of desktop Firefox, chrome and content run in the same opera
 
 However, in future versions of desktop Firefox, chrome code will run in a different process from content, and this kind of direct access will no longer be possible.
 
-In multiprocess Firefox, when chrome code needs to interact with web content, it needs to:
-* factor the code that needs direct access to content into separate scripts, called "content scripts"
+In multi-process Firefox, when chrome code needs to interact with web content, it needs to:
+* factor the code that needs direct access to content into separate scripts, which are called "content scripts"
 * use a message manager to load these content scripts into the content process
 * use the message manager API to communicate with the content script
 
-Note that none of this requires multi-process Firefox: everything described here will work with single-process Firefox, so the same code will work in both variants.
-
-## Message manager API overview ##
-
-The message manager includes four methods:
+The message manager object defines four methods to enable this:
 
 * `messageManager.loadFrameScript(url[, allowDelayedLoad])`: load a content script
 * `messageManager.addMessageListener(messageName, listener)`: add a listener for messages from a content script
 * `messageManager.removeMessageListener(messageName, listener)`: stop listening for a message
 * `messageManager.sendAsyncMessage(messageName[, json])`: send a message to content scripts
 
+*Note that none of this requires multi-process Firefox: everything described here will work with single-process Firefox, so the same code will work in both variants.*
+
 ## Types of message manager ##
 
 There are three different types of message manager: the global message manager, the window message manager, and the browser message manager.
 
-Note that in this context, "browser" refers to the [XUL `<browser>` object](https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/browser), which is a frame that hosts a single Web document. It does not refer to the more general sense of a Web browser.
+*Note that in this context, "browser" refers to the [XUL `<browser>` object](https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/browser), which is a frame that hosts a single Web document. It does not refer to the more general sense of a Web browser.*
 
 ### The global message manager ###
 
@@ -43,9 +39,9 @@ The global message manager operates on every [`<browser>`](https://developer.moz
 
 ### The window message manager ###
 
-The window message manager is associated with a specific chrome window, and operates on every tab loaded into the window:
+The window message manager is associated with a specific chrome window, and operates on every `<browser>` loaded into the window:
 
-* `loadFrameScript` loads the given script into every `<browser>` in the window
+* `loadFrameScript` loads the given script into every `<browser>` in the chrome window
 * `sendAsyncMessage` API sends the message to every `<browser>` in the chrome window
 
 ### The browser message manager ###
@@ -112,13 +108,17 @@ Content scripts have the following global objects:
 Chrome code and content scripts communicate back and forth using a messaging API which can include JSON arguments.
 Content scripts can send asynchronous or synchronous messages to chrome, but chrome can only send asynchronous messages to content. This is an intentional design decision made to prevent content code from making chrome code unresponsive.
 
-Where absolutely necessary, content scripts can pass wrappers called Cross Process Object Wrappers to chrome, and chrome can use these wrappers to get synchronous access to content objects.
+Where absolutely necessary, content scripts can pass wrappers called Cross Process Object Wrappers (also known as CPOWs) to chrome, and chrome can use these wrappers to get synchronous access to content objects.
 
 ### Content to chrome
 
-The content script can make the message synchronous or asynchronous.
+The content script can choose to send synchronous or asynchronous messages to chrome code.
 
-To send an asychronous message the content script uses the global `sendAsyncMessage()` function. `sendAsyncMessage()` takes one mandatory parameter, which is the name of the message. After that it can pass detailed data as a JSONable object, and after that it can pass any objects it wants to pass to content as a CPOW. 
+To send an asychronous message the content script uses the global `sendAsyncMessage()` function:
+
+    sendAsyncMessage("my-e10s-extension-message");
+
+`sendAsyncMessage()` takes one mandatory parameter, which is the name of the message. After that it can pass detailed data as a JSONable object, and after that it can pass any objects it wants to pass to content as a CPOW. 
 
 The example below sends a message named "my-e10s-extension-message", with a `data` payload containing `details` and `tag` properties, and exposes the `event.target` object as a CPOW:
 
