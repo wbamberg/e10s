@@ -3,28 +3,23 @@ const Ci = Components.interfaces;
 var console;
 
 var WindowListener = {
-  setupBrowserUI: function(window) {
+  loadFrameScripts: function(window) {
     let document = window.document;
 
-    // Take any steps to add UI or anything to the browser window
-    // document.getElementById() etc. will work here
     console = window.console;
 
     let windowMM = window.messageManager;
-    //windowMM.loadFrameS
+    windowMM.loadFrameScript("chrome://my-e10s-extension/content/content.js", true);
+    windowMM.addMessageListener("my-e10s-extension-message", listener);
 
-    window.gBrowser.addEventListener("load", function(e){
-      console.log("loaded: " + e.target.location);
-      e.target.body.innerHTML="<h1>eaten by the add-on</h1>";      
-    }, true);
-
-  },
-
-  tearDownBrowserUI: function(window) {
-    let document = window.document;
-
-    // Take any steps to remove UI or anything from the browser window
-    // document.getElementById() etc. will work here
+    function listener(message) {
+      //console.log(message.name);
+      //console.log(message.sync);
+      //console.log(message.data);
+      //console.log(message.target);
+      console.log(message.objects.element);
+      message.objects.element.setAttribute("align", "center");
+    }
   },
 
   // nsIWindowMediatorListener functions
@@ -39,7 +34,7 @@ var WindowListener = {
 
       // If this is a browser window then setup its UI
       if (domWindow.document.documentElement.getAttribute("windowtype") == "navigator:browser")
-        WindowListener.setupBrowserUI(domWindow);
+        WindowListener.loadFrameScripts(domWindow);
     }, false);
   },
 
@@ -59,7 +54,7 @@ function startup(data, reason) {
   while (windows.hasMoreElements()) {
     let domWindow = windows.getNext().QueryInterface(Ci.nsIDOMWindow);
 
-    WindowListener.setupBrowserUI(domWindow);
+    WindowListener.loadFrameScripts(domWindow);
   }
 
   // Wait for any new browser windows to open
@@ -67,22 +62,4 @@ function startup(data, reason) {
 }
 
 function shutdown(data, reason) {
-  // When the application is shutting down we normally don't have to clean
-  // up any UI changes made
-  if (reason == APP_SHUTDOWN)
-    return;
-
-  let wm = Cc["@mozilla.org/appshell/window-mediator;1"].
-           getService(Ci.nsIWindowMediator);
-
-  // Get the list of browser windows already open
-  let windows = wm.getEnumerator("navigator:browser");
-  while (windows.hasMoreElements()) {
-    let domWindow = windows.getNext().QueryInterface(Ci.nsIDOMWindow);
-
-    WindowListener.tearDownBrowserUI(domWindow);
-  }
-
-  // Stop listening for any new browser windows to open
-  wm.removeListener(WindowListener);
 }

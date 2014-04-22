@@ -30,34 +30,21 @@ There are three different types of message manager: the global message manager, 
 
 *Note that in this context, "browser" refers to the [XUL `<browser>` object](https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/browser), which is a frame that hosts a single Web document. It does not refer to the more general sense of a Web browser.*
 
-### The global message manager ###
+* The global message manager operates on every [`<browser>`](https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/browser): `loadFrameScript` loads the given script into every `<browser>` in every chrome window, and `sendAsyncMessage` sends the message to every `<browser>` in every chrome window.
 
-The global message manager operates on every [`<browser>`](https://developer.mozilla.org/en-US/docs/Mozilla/Tech/XUL/browser):
+* The window message manager is associated with a specific chrome window, and operates on every `<browser>` loaded into the window: `loadFrameScript` loads the given script into every `<browser>` in the chrome window, and `sendAsyncMessage` sends the message to every `<browser>` in the chrome window
 
-* `loadFrameScript` loads the given script into every `<browser>` in every chrome window
-* `sendAsyncMessage` API sends the message to every `<browser>` in every chrome window
+* The browser message manager is specific to a single XUL `<browser>` element (which essentially corresponds to a single tab): `loadFrameScript` loads the given script only into its `<browser>`, and `sendAsyncMessage` sends the message only to that `<browser>`.
 
-### The window message manager ###
+You can mix and match: so for example, you could load a script into every `<browser>` using the global message manager, but then send a message to the script instance loaded into a specific `<browser>` using the browser message manager.
 
-The window message manager is associated with a specific chrome window, and operates on every `<browser>` loaded into the window:
-
-* `loadFrameScript` loads the given script into every `<browser>` in the chrome window
-* `sendAsyncMessage` API sends the message to every `<browser>` in the chrome window
-
-### The browser message manager ###
-
-The `<browser>` message manager is specific to a single XUL `<browser>` element (which essentially corresponds to a single tab):
-
-* `loadFrameScript` loads the given script only into its `<browser>`
-* `sendAsyncMessage` API sends the message only its `<browser>`
 
 ## Accessing a message manager ##
 
 You can access the global message manager like this:
 
     // chrome script
-    let globalMM = Cc["@mozilla.org/globalmessagemanager;1"]
-                     .getService(Ci.nsIChromeFrameMessageManager);
+    let globalMM = Cc["@mozilla.org/globalmessagemanager;1"].getService(Ci.nsIMessageListenerManager);
 
 The window message manager can be accessed as a property of the chrome window:
 
@@ -74,20 +61,19 @@ The browser message manager can be accessed as a property of the XUL `<browser>`
 To load a content script use the `loadFrameScript` function:
 
     // chrome script
-    messageManager.loadFrameScript("chrome://my-e10s-extension/content/content.js");
+    messageManager.loadFrameScript("chrome://my-e10s-extension/content/content.js", true);
 
-This takes one mandatory parameter, which is a chrome:// URL pointing to the content script you want to load. 
+This takes two mandatory parameters:
 
-Extension developers can [register a chrome URL](https://developer.mozilla.org/en/docs/Chrome_Registration) to define the mapping between the URL and a content script packaged with the extension:
+* a `chrome://` URL pointing to the content script you want to load
+* a boolean flag `allowDelayedLoad`
+
+Extension developers can [register a chrome URL](https://developer.mozilla.org/en/docs/Chrome_Registration) to define the mapping between the `chrome://` URL and a content script packaged with the extension:
 
     // chrome.manifest
     content my-e10s-extension content.js
 
-By default, `loadFrameScript` will only load the specified script into frames that are already open at the time the call is made, not any frames opened afterwards. But `loadFrameScript` takes an additional parameter `allowDelayedLoad`, which, if present and set to `true`, means that the content script will be loaded into any new frames opened after the `loadFrameScript` call.
-
-    // chrome script
-    // load script into current and future frames
-    messageManager.loadFrameScript("chrome://my-e10s-extension/content/content.js", true);
+The `allowDelayedLoad` flag, if `true`, means that the content script will be loaded into any new frames opened after the `loadFrameScript` call.
 
 ## Content script environment ##
 
@@ -114,24 +100,24 @@ Where absolutely necessary, content scripts can pass wrappers called Cross Proce
 
 The content script can choose to send synchronous or asynchronous messages to chrome code.
 
-To send an asychronous message the content script uses the global `sendAsyncMessage()` function:
+To send an asynchronous message the content script uses the global `sendAsyncMessage()` function:
 
     sendAsyncMessage("my-e10s-extension-message");
 
-`sendAsyncMessage()` takes one mandatory parameter, which is the name of the message. After that it can pass detailed data as a JSONable object, and after that it can pass any objects it wants to pass to content as a CPOW. 
+`sendAsyncMessage()` takes one mandatory parameter, which is the name of the message. After that it can pass detailed data as string or a JSONable object, and after that it can pass any objects it wants to pass to content as CPOWs. 
 
 The example below sends a message named "my-e10s-extension-message", with a `data` payload containing `details` and `tag` properties, and exposes the `event.target` object as a CPOW:
 
-   // content script
-   addEventListener("click", function (event) {
-     sendAsyncMessage("my-e10s-extension-message", {
-       details : "they clicked",
-       tag : event.target.tagName
-     }, 
-     {
-        target : event.target
-     });
-    }, false);
+    // content script
+    addEventListener("click", function (event) {
+      sendAsyncMessage("my-e10s-extension-message", {
+        details : "they clicked",
+        tag : event.target.tagName
+      }, 
+      {
+         target : event.target
+      });
+     }, false);
 
 To receive messages from content, a chrome script needs to add a message listener using the message manager's `addMessageListener()` API.
 
@@ -175,7 +161,7 @@ To send a synchronous message, the content script uses the global `sendSyncMessa
       content.console.log(results[0]);
     }, false);
 
-To handle a synchronous message, the chrome script just returns the value from the message listener:
+To handle a synchronous message from content, the chrome script needs to return the value from the message listener:
 
     // chrome script
     messageManager.addMessageListener("my-e10s-extension-message", listener);
@@ -184,11 +170,73 @@ To handle a synchronous message, the chrome script just returns the value from t
       return "this pleases chrome";
     }
 
+To stop listening for messages from content, use the message manager's `removeMessageListener()` method:
+
+    // chrome script
+    messageManager.removeMessageListener("my-e10s-extension-message", listener);
+
 ### Chrome to content
+
+To send a message from chrome to content, use the message manager's `sendAsyncMessage()` method:
+
+    // chrome script
+    messageManager.sendAsyncMessage("message-from-chrome");
+
+The message takes one mandatory parameter, which is the message name. After that it can pass detailed data as a string or a JSONable object:
+
+    // chrome script
+    messageManager.sendAsyncMessage("message-from-chrome", "message-payload");
+    messageManager.sendAsyncMessage("message-from-chrome", { details : "some more details"} );
+
+To receive a message from chrome, a content script uses the global `addMessageListener()` function. This takes two parameters: the name of the message and a listener function. The listener will be passed a `message` object whose `data` property is the message payload:
+
+    // content script
+    function handMessageFromChrome(message) {
+      var payload = message.data.details;      // "some more details"
+    }
+
+    addMessageListener("message-from-chrome", handMessageFromChrome);
 
 ## Cross Process Object Wrappers
 
+Chrome to content messaging must be asynchronous: `sendSyncMessage()` is not available to chrome. This is because the chrome process runs the Firefox UI, so if it were blocked by the content process, then a slow content process could cause Firefox to become unresponsive to users.
+
+Converting synchronous code to be asynchronous can be difficult and time-consuming. As a migration aid, the messaging framework enables content scripts to make content objects available to chrome through a wrapper called a Cross Process Object Wrapper.
+
+Content scripts pass these objects using the third parameter to `sendAsyncMessage()` or `sendSyncMessage()`. For example, this content script sends a DOM node to chrome when the user clicks it:
+
+    // content script
+    addEventListener("click", function (event) {
+      sendAsyncMessage("my-e10s-extension-message", {}, { element : event.target });
+    }, false);
+
+In the chrome script, the DOM node is now accessible through a Cross Process Object Wrapper, as a property of the `objects` property of the message. The chrome script can get and set this object's properties, and call its functions:
+
+    // chrome script
+    windowMM.addMessageListener("my-e10s-extension-message", handleMessage);
+
+    function handleMessage(message) {
+      let wrapper = message.objects.element
+      console.log(wrapper.innerHTML);
+      wrapper.innerHTML = "<h2>Modified by chrome!</h2>"
+      wrapper.setAttribute("align", "center");
+    }
+
+### Limitations ###
+
+Although these wrappers 
+
+* Performance
+* Message order
+* Can't pass functions
+
+In the chrome script these look just like content objects, with some significant differences, but they are implemented as wrappers over the process boundary.
+
+However, in cases where chrome code absolutely needs synchronous access to content, the content script can send special objects called Cross Process Object Wrappers to chrome.
+
+Cross Process Object Wrappers are objects
+
+## An example ##
 
 
-************
 
